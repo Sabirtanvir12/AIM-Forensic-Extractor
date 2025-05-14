@@ -16,9 +16,9 @@ import webbrowser
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QPushButton, QTextEdit, QFileDialog, QTabWidget, 
                             QTreeWidget, QTreeWidgetItem, QProgressBar, QMessageBox,
-                            QLineEdit, QGroupBox, QScrollArea, QSizePolicy, QFrame)
+                            QLineEdit, QGroupBox, QScrollArea, QSizePolicy, QSplitter)
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize, QTimer
-from PyQt5.QtGui import QPixmap, QIcon, QFont, QColor, QPalette, QLinearGradient, QBrush
+from PyQt5.QtGui import QPixmap, QIcon, QFont, QColor, QPalette, QFontDatabase
 
 # ======================
 # 🛠️ HELPER FUNCTIONS
@@ -147,9 +147,42 @@ def analyze_steganography(image_path):
                 return "Potential Photoshop editing detected"
             if b'Steg' in content or b'steg' in content:
                 return "Possible steganography markers found"
+            if b'LSB' in content or b'lsb' in content:
+                return "Possible LSB steganography indicators"
         return "No obvious steganography markers detected"
     except Exception:
         return "Steganography analysis failed"
+
+def detect_tampering_indicators(image_path):
+    """Detect potential image tampering indicators"""
+    indicators = []
+    try:
+        with Image.open(image_path) as img:
+            # Check for multiple EXIF data blocks
+            if hasattr(img, 'info') and len(img.info) > 10:
+                indicators.append("Multiple metadata blocks detected")
+            
+            # Check for inconsistent compression
+            if 'compression' in img.info and img.info['compression'] not in ('jpeg', 'raw', None):
+                indicators.append(f"Unusual compression: {img.info['compression']}")
+                
+        # Check for error level analysis anomalies
+        try:
+            import numpy as np
+            import cv2
+            original = cv2.imread(image_path)
+            recompressed = cv2.imencode('.jpg', original, [int(cv2.IMWRITE_JPEG_QUALITY), 90])[1]
+            recompressed = cv2.imdecode(recompressed, 1)
+            ela = np.abs(original.astype(np.int16) - recompressed.astype(np.int16)).astype(np.uint8)
+            if np.mean(ela) > 15:
+                indicators.append("High Error Level Analysis (ELA) - Possible manipulation")
+        except:
+            pass
+            
+    except Exception as e:
+        indicators.append(f"Tampering detection error: {str(e)}")
+    
+    return indicators if indicators else "No obvious tampering indicators detected"
 
 # ======================
 # 🔍 METADATA EXTRACTION
@@ -177,7 +210,9 @@ def extract_all_metadata(image_path):
             'Created': datetime.fromtimestamp(file_stats.st_ctime).strftime("%B %d, %Y at %H:%M:%S"),
             'Modified': datetime.fromtimestamp(file_stats.st_mtime).strftime("%B %d, %Y at %H:%M:%S"),
             'Accessed': datetime.fromtimestamp(file_stats.st_atime).strftime("%B %d, %Y at %H:%M:%S"),
-            'File Permissions': oct(file_stats.st_mode)[-3:]
+            'File Permissions': oct(file_stats.st_mode)[-3:],
+            'Inode Number': file_stats.st_ino,
+            'Device ID': file_stats.st_dev
         }
         
         # 🔒 File hashes for forensic verification
@@ -198,12 +233,14 @@ def extract_all_metadata(image_path):
                 'Color Mode': img.mode,
                 'Bit Depth': getattr(img, 'bits', 'Unknown'),
                 'Is Animated': getattr(img, 'is_animated', False),
-                'Has Transparency': 'Yes' if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info) else 'No'
+                'Has Transparency': 'Yes' if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info) else 'No',
+                'Compression': img.info.get('compression', 'Unknown')
             }
 
-            # 🕵️‍♂️ Basic forensic analysis
+            # 🕵️‍♂️ Enhanced forensic analysis
             metadata['🕵️‍♂️ Forensic Analysis']['Thumbnail Present'] = 'Yes' if extract_thumbnail(image_path) else 'No'
             metadata['🕵️‍♂️ Forensic Analysis']['Steganography Indicators'] = analyze_steganography(image_path)
+            metadata['🕵️‍♂️ Forensic Analysis']['Tampering Indicators'] = detect_tampering_indicators(image_path)
             
             # 📷 Enhanced EXIF data extraction
             exif_data = {}
@@ -430,131 +467,152 @@ class MetadataExtractorApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🔍 AIM(ADVANCED IMAGE METADATA) FORENSIC EXTRACTOR 🕵️")
-        self.setGeometry(100, 100, 1200, 800)
-        self.setMinimumSize(QSize(900, 600))
+        self.setGeometry(100, 100, 1400, 900)
+        self.setMinimumSize(QSize(1000, 700))
+        
+        # Load custom font
+        self.load_fonts()
         
         # Set application style with professional dark theme
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #121212;
+                background-color: #1e1e2d;
             }
             QGroupBox {
-                border: 1px solid #333;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 15px;
+                border: 2px solid #3a3a4a;
+                border-radius: 8px;
+                margin-top: 15px;
+                padding-top: 20px;
                 color: #e0e0e0;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 14px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 3px;
+                left: 15px;
+                padding: 0 5px;
             }
             QLabel {
                 color: #e0e0e0;
-                font-size: 12px;
+                font-size: 13px;
             }
             QPushButton {
-                background-color: #1e88e5;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
+                background-color: #3a3a4a;
+                color: #ffffff;
+                border: 1px solid #4a4a5a;
+                padding: 10px 20px;
+                border-radius: 6px;
                 font-weight: bold;
-                min-width: 100px;
-                font-size: 12px;
+                font-size: 13px;
+                min-width: 120px;
             }
             QPushButton:hover {
-                background-color: #1976d2;
+                background-color: #4a4a5a;
+                border: 1px solid #5a5a6a;
             }
             QPushButton:pressed {
-                background-color: #0d47a1;
-            }
-            QPushButton:disabled {
-                background-color: #424242;
-                color: #757575;
+                background-color: #2a2a3a;
             }
             QTreeWidget {
-                background-color: #1e1e1e;
+                background-color: #2a2a3a;
                 color: #e0e0e0;
-                border: 1px solid #333;
-                font-family: 'Consolas', monospace;
+                border: 1px solid #3a3a4a;
+                font-family: 'Fira Code', Consolas, monospace;
                 font-size: 12px;
+                alternate-background-color: #252535;
             }
             QTreeWidget::item {
-                padding: 5px;
+                color: #e0e0e0;
+                padding: 6px;
+                border-bottom: 1px solid #3a3a4a;
             }
             QTreeWidget::item:hover {
-                background-color: #333;
+                background-color: #3a3a5a;
             }
             QHeaderView::section {
-                background-color: #1e1e1e;
-                color: #e0e0e0;
-                padding: 5px;
+                background-color: #2a2a3a;
+                color: #ffffff;
+                padding: 8px;
                 border: none;
                 font-weight: bold;
+                font-size: 13px;
             }
             QTextEdit {
-                background-color: #1e1e1e;
+                background-color: #2a2a3a;
                 color: #e0e0e0;
-                border: 1px solid #333;
-                font-family: 'Consolas', monospace;
+                border: 1px solid #3a3a4a;
+                font-family: 'Fira Code', Consolas, monospace;
                 font-size: 12px;
-                selection-background-color: #1e88e5;
             }
             QProgressBar {
-                border: 1px solid #333;
-                border-radius: 3px;
+                border: 1px solid #3a3a4a;
+                border-radius: 4px;
                 text-align: center;
                 color: white;
-                background-color: #1e1e1e;
+                background-color: #252535;
             }
             QProgressBar::chunk {
-                background-color: #4caf50;
+                background-color: #4CAF50;
                 width: 10px;
+                border-radius: 3px;
             }
             QTabWidget::pane {
-                border: 1px solid #333;
-                background: #1e1e1e;
+                border: 1px solid #3a3a4a;
+                background: #2a2a3a;
             }
             QTabBar::tab {
-                background: #1e1e1e;
-                color: #e0e0e0;
-                padding: 8px 12px;
-                border: 1px solid #333;
+                background: #2a2a3a;
+                color: #b0b0b0;
+                padding: 10px 20px;
+                border: 1px solid #3a3a4a;
                 border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                margin-right: 2px;
+                font-weight: bold;
             }
+            QTabBar {
+                background-color: #2a2a3a;
+                border-bottom: 1px solid #3a3a4a;
+            }
+            
+            QTabBar::tab {
+                background: #2a2a3a;
+                color: #b0b0b0;
+                padding: 8px 15px;
+                margin: 0;
+                border: 1px solid #3a3a4a;
+                border-bottom: none;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                margin-right: 2px;
+                font-weight: bold;
+                min-width: 120px;
+            }
+            
             QTabBar::tab:selected {
-                background: #1e88e5;
-                color: white;
+                background: #3a3a4a;
+                color: #ffffff;
+                border-bottom: 2px solid #4CAF50;
             }
+            
             QTabBar::tab:hover {
-                background: #333;
+                background: #3a3a5a;
             }
-            QScrollArea {
-                background: transparent;
-                border: none;
+            
+            QTabBar::tab:!selected {
+                margin-top: 2px; /* make non-selected tabs look smaller */
             }
-            QScrollBar:vertical {
-                border: none;
-                background: #1e1e1e;
-                width: 10px;
-                margin: 0px 0px 0px 0px;
+            
+            QTabWidget::pane {
+                border: 1px solid #3a3a4a;
+                background: #2a2a3a;
+                position: absolute;
+                top: -1px;
             }
-            QScrollBar::handle:vertical {
-                background: #424242;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
+            
+            QTabWidget::tab-bar {
+                alignment: center;
             }
         """)
         
@@ -562,25 +620,25 @@ class MetadataExtractorApp(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(15, 15, 15, 15)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)
         self.main_layout.setSpacing(15)
         
         # Header section
         self.create_header_section()
         
-        # Separator line
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("color: #333;")
-        self.main_layout.addWidget(separator)
-        
-        # Image preview and metadata section
-        self.create_metadata_section()
+        # Main content area with splitter
+        self.create_main_content()
         
         # Status bar
         self.status_bar = self.statusBar()
-        self.status_bar.setStyleSheet("color: #9e9e9e; background-color: #121212;")
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #252535;
+                color: #b0b0b0;
+                border-top: 1px solid #3a3a4a;
+                font-size: 12px;
+            }
+        """)
         self.status_bar.showMessage("Ready to analyze images")
         
         # Initialize variables
@@ -595,36 +653,52 @@ class MetadataExtractorApp(QMainWindow):
         # Animation variables
         self.animation_phase = 0
         self.animation_colors = [
-            QColor(30, 136, 229),  # Blue
-            QColor(76, 175, 80),    # Green
-            QColor(156, 39, 176),   # Purple
-            QColor(255, 193, 7),    # Yellow
-            QColor(255, 87, 34)     # Orange
+            QColor(76, 175, 80),   # Green
+            QColor(33, 150, 243),  # Blue
+            QColor(156, 39, 176),  # Purple
+            QColor(255, 193, 7),   # Amber
+            QColor(244, 67, 54)    # Red
         ]
+    
+    def load_fonts(self):
+        """Load custom fonts for the application"""
+        try:
+            # Try to load Fira Code (professional monospace font)
+            font_id = QFontDatabase.addApplicationFont(":/fonts/FiraCode-Regular.ttf")
+            if font_id == -1:
+                # Fallback to system monospace
+                self.mono_font = QFont("Consolas", 10)
+            else:
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+                self.mono_font = QFont(font_family, 10)
+        except:
+            self.mono_font = QFont("Consolas", 10)
+        
+        self.title_font = QFont()
+        self.title_font.setBold(True)
+        self.title_font.setPointSize(16)
+        
+        self.subtitle_font = QFont()
+        self.subtitle_font.setPointSize(12)
     
     def create_header_section(self):
         """Create the header section with logo, title, and buttons"""
         header_widget = QWidget()
-        header_widget.setStyleSheet("background-color: #1e1e1e; border-radius: 5px;")
+        header_widget.setStyleSheet("background-color: #252535; border-radius: 8px;")
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(15, 10, 15, 10)
+        header_layout.setContentsMargins(20, 15, 20, 15)
         
         # Logo and title
         title_layout = QVBoxLayout()
         title_layout.setSpacing(5)
         
         self.title_label = QLabel("🔍 AIM(ADVANCED IMAGE METADATA) FORENSIC EXTRACTOR 🕵️")
-        self.title_label.setStyleSheet("""
-            font-size: 18px; 
-            font-weight: bold; 
-            color: #ffffff;
-        """)
+        self.title_label.setFont(self.title_font)
+        self.title_label.setStyleSheet("color: #ffffff;")
         
         self.subtitle_label = QLabel("Professional digital forensics tool for image analysis")
-        self.subtitle_label.setStyleSheet("""
-            font-size: 12px; 
-            color: #9e9e9e;
-        """)
+        self.subtitle_label.setFont(self.subtitle_font)
+        self.subtitle_label.setStyleSheet("color: #b0b0b0;")
         
         title_layout.addWidget(self.title_label)
         title_layout.addWidget(self.subtitle_label)
@@ -632,7 +706,7 @@ class MetadataExtractorApp(QMainWindow):
         
         # Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(15)
         
         self.open_button = QPushButton("📂 Open Image")
         self.open_button.setToolTip("Open an image file for analysis")
@@ -660,42 +734,49 @@ class MetadataExtractorApp(QMainWindow):
         
         self.main_layout.addWidget(header_widget)
     
-    def create_metadata_section(self):
-        """Create the metadata display section with tabs"""
-        # Main container
-        metadata_container = QHBoxLayout()
-        metadata_container.setSpacing(15)
+    def create_main_content(self):
+        """Create the main content area with splitter"""
+        self.splitter = QSplitter(Qt.Horizontal)
         
         # Left side - image preview
-        self.image_preview_group = QGroupBox("Image Preview")
-        self.image_preview_group.setMinimumWidth(300)
-        image_preview_layout = QVBoxLayout()
-        image_preview_layout.setContentsMargins(10, 15, 10, 10)
+        self.image_preview_widget = QWidget()
+        self.image_preview_widget.setMinimumWidth(350)
+        image_preview_layout = QVBoxLayout(self.image_preview_widget)
+        image_preview_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Image preview with frame
-        self.image_frame = QFrame()
-        self.image_frame.setFrameShape(QFrame.Box)
-        self.image_frame.setLineWidth(1)
-        self.image_frame.setStyleSheet("background-color: #1e1e1e; border-color: #333;")
-        frame_layout = QVBoxLayout(self.image_frame)
-        frame_layout.setContentsMargins(5, 5, 5, 5)
+        self.image_preview_group = QGroupBox("Image Preview")
+        image_group_layout = QVBoxLayout(self.image_preview_group)
         
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background-color: #121212;")
+        self.image_label.setStyleSheet("""
+            background-color: #252535; 
+            border: 2px solid #3a3a4a;
+            border-radius: 5px;
+        """)
+        self.image_label.setMinimumSize(300, 300)
         self.image_label.setText("No image loaded")
         
-        frame_layout.addWidget(self.image_label)
-        
-        # Image info
         self.image_info_label = QLabel()
         self.image_info_label.setAlignment(Qt.AlignCenter)
-        self.image_info_label.setStyleSheet("font-size: 11px; color: #9e9e9e;")
+        self.image_info_label.setStyleSheet("font-size: 12px; color: #b0b0b0;")
         self.image_info_label.setText("Select an image to begin analysis")
         
-        image_preview_layout.addWidget(self.image_frame)
-        image_preview_layout.addWidget(self.image_info_label)
-        self.image_preview_group.setLayout(image_preview_layout)
+        image_group_layout.addWidget(self.image_label)
+        image_group_layout.addWidget(self.image_info_label)
+        image_preview_layout.addWidget(self.image_preview_group)
+        
+        # Add forensic summary
+        self.forensic_summary_group = QGroupBox("Forensic Summary")
+        forensic_summary_layout = QVBoxLayout(self.forensic_summary_group)
+        
+        self.forensic_summary = QTextEdit()
+        self.forensic_summary.setReadOnly(True)
+        self.forensic_summary.setStyleSheet("font-size: 12px;")
+        forensic_summary_layout.addWidget(self.forensic_summary)
+        
+        image_preview_layout.addWidget(self.forensic_summary_group)
+        image_preview_layout.addStretch()
         
         # Right side - metadata tabs
         self.metadata_tabs = QTabWidget()
@@ -713,29 +794,34 @@ class MetadataExtractorApp(QMainWindow):
         # Tree view tab
         self.metadata_tree = QTreeWidget()
         self.metadata_tree.setHeaderLabels(["Property", "Value"])
-        self.metadata_tree.setColumnWidth(0, 300)
+        self.metadata_tree.setColumnWidth(0, 350)
         self.metadata_tree.setAlternatingRowColors(True)
+        self.metadata_tree.setFont(self.mono_font)
         self.metadata_tree.setIndentation(15)
         self.tree_tab_layout.addWidget(self.metadata_tree)
         
         # JSON view tab
         self.json_view = QTextEdit()
         self.json_view.setReadOnly(True)
+        self.json_view.setFont(self.mono_font)
         self.json_tab_layout.addWidget(self.json_view)
         
         # Forensic tab
         self.forensic_view = QTextEdit()
         self.forensic_view.setReadOnly(True)
+        self.forensic_view.setFont(self.mono_font)
         self.forensic_tab_layout.addWidget(self.forensic_view)
         
         # Add tabs
         self.metadata_tabs.addTab(self.tree_tab, "📊 Structured View")
         self.metadata_tabs.addTab(self.json_tab, "📝 JSON View")
-        self.metadata_tabs.addTab(self.forensic_tab, "🕵️‍♂️ Forensic Analysis")
+        self.metadata_tabs.addTab(self.forensic_tab, "🕵️ Forensic Analysis")
         
-        # Add widgets to container
-        metadata_container.addWidget(self.image_preview_group)
-        metadata_container.addWidget(self.metadata_tabs, stretch=1)
+        # Add widgets to splitter
+        self.splitter.addWidget(self.image_preview_widget)
+        self.splitter.addWidget(self.metadata_tabs)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 3)
         
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -744,7 +830,7 @@ class MetadataExtractorApp(QMainWindow):
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
         
-        self.main_layout.addLayout(metadata_container)
+        self.main_layout.addWidget(self.splitter)
         self.main_layout.addWidget(self.progress_bar)
     
     def update_animations(self):
@@ -762,41 +848,19 @@ class MetadataExtractorApp(QMainWindow):
         g = int(current_color.green() + (next_color.green() - current_color.green()) * progress)
         b = int(current_color.blue() + (next_color.blue() - current_color.blue()) * progress)
         
-        # Apply gradient to title
-        gradient = QLinearGradient(0, 0, self.title_label.width(), 0)
-        gradient.setColorAt(0, QColor(r, g, b))
-        gradient.setColorAt(1, QColor(
-            (r + self.animation_colors[next_color_index].red()) // 2,
-            (g + self.animation_colors[next_color_index].green()) // 2,
-            (b + self.animation_colors[next_color_index].blue()) // 2
-        ))
-        
-        palette = self.title_label.palette()
-        palette.setColor(QPalette.WindowText, QColor(r, g, b))
-        self.title_label.setPalette(palette)
+        # Apply to title
+        self.title_label.setStyleSheet(f"""
+            font-size: 16px; 
+            font-weight: bold; 
+            color: rgb({r}, {g}, {b});
+        """)
     
     def open_image(self):
         """Open an image file and extract metadata"""
         file_dialog = QFileDialog()
-        file_dialog.setNameFilter("Image files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp *.gif *.heic *.webp)")
+        file_dialog.setNameFilter("Image files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp *.gif *.heic *.webp *.raw)")
         file_dialog.setFileMode(QFileDialog.ExistingFile)
         file_dialog.setViewMode(QFileDialog.Detail)
-        file_dialog.setStyleSheet("""
-            QFileDialog {
-                background-color: #1e1e1e;
-            }
-            QLabel {
-                color: #e0e0e0;
-            }
-            QTreeView, QListView {
-                background-color: #1e1e1e;
-                color: #e0e0e0;
-                alternate-background-color: #121212;
-            }
-            QTreeView::item:hover, QListView::item:hover {
-                background-color: #333;
-            }
-        """)
         
         if file_dialog.exec_():
             selected_files = file_dialog.selectedFiles()
@@ -818,8 +882,10 @@ class MetadataExtractorApp(QMainWindow):
             # Load image preview
             pixmap = QPixmap(self.current_file)
             if not pixmap.isNull():
+                # Calculate maximum size while maintaining aspect ratio
+                max_size = self.image_label.size()
                 scaled_pixmap = pixmap.scaled(
-                    self.image_label.size(), 
+                    max_size, 
                     Qt.KeepAspectRatio, 
                     Qt.SmoothTransformation
                 )
@@ -873,6 +939,7 @@ class MetadataExtractorApp(QMainWindow):
         self.metadata_tree.clear()
         self.json_view.clear()
         self.forensic_view.clear()
+        self.forensic_summary.clear()
         
         # Display in tree view
         self.populate_tree_view()
@@ -882,6 +949,9 @@ class MetadataExtractorApp(QMainWindow):
         
         # Display forensic analysis
         self.display_forensic_analysis()
+        
+        # Display forensic summary
+        self.display_forensic_summary()
     
     def populate_tree_view(self):
         """Populate the tree widget with metadata"""
@@ -890,12 +960,14 @@ class MetadataExtractorApp(QMainWindow):
                 continue
                 
             category_item = QTreeWidgetItem([category])
+            category_item.setFont(0, QFont("", 10, QFont.Bold))
             self.metadata_tree.addTopLevelItem(category_item)
             
             if isinstance(data, dict):
                 for key, value in data.items():
                     if isinstance(value, dict):
                         sub_item = QTreeWidgetItem([key])
+                        sub_item.setFont(0, QFont("", 9, QFont.Bold))
                         category_item.addChild(sub_item)
                         for sub_key, sub_value in value.items():
                             sub_sub_item = QTreeWidgetItem([sub_key, str(sub_value)])
@@ -908,6 +980,7 @@ class MetadataExtractorApp(QMainWindow):
                 category_item.addChild(item)
         
         self.metadata_tree.expandAll()
+        self.metadata_tree.resizeColumnToContents(0)
     
     def display_forensic_analysis(self):
         """Display forensic analysis information"""
@@ -924,9 +997,9 @@ class MetadataExtractorApp(QMainWindow):
             analysis_text += "\n"
         
         # Forensic indicators
-        if '🕵️ Forensic Analysis' in self.metadata:
+        if '🕵️‍♂️ Forensic Analysis' in self.metadata:
             analysis_text += "=== FORENSIC INDICATORS ===\n"
-            for indicator, value in self.metadata['🕵️ Forensic Analysis'].items():
+            for indicator, value in self.metadata['🕵️‍♂️ Forensic Analysis'].items():
                 analysis_text += f"{indicator}: {value}\n"
             analysis_text += "\n"
         
@@ -947,6 +1020,60 @@ class MetadataExtractorApp(QMainWindow):
         
         self.forensic_view.setPlainText(analysis_text)
     
+    def display_forensic_summary(self):
+        """Display forensic summary in the preview panel"""
+        if not self.metadata:
+            return
+        
+        summary_text = ""
+        
+        
+        # Basic file info
+        if '📁 File Information' in self.metadata:
+            file_info = self.metadata['📁 File Information']
+            summary_text += f"📄 File: {file_info.get('File Name', 'Unknown')}\n"
+            summary_text += f"📏 Size: {file_info.get('File Size', 'Unknown')}\n"
+            summary_text += f"🖼️ Dimensions: {file_info.get('Width', '?')} x {file_info.get('Height', '?')}\n"
+            summary_text += f"📅 Modified: {file_info.get('Modified', 'Unknown')}\n\n"
+        
+        # Camera/device info
+        if '📷 Camera Information' in self.metadata and isinstance(self.metadata['📷 Camera Information'], dict):
+            camera_info = self.metadata['📷 Camera Information']
+            summary_text += "📷 Camera/Device:\n"
+            if 'Manufacturer' in camera_info:
+                summary_text += f"• Make: {camera_info['Manufacturer']}\n"
+            if 'Model' in camera_info:
+                summary_text += f"• Model: {camera_info['Model']}\n"
+            if 'Software' in camera_info:
+                summary_text += f"• Software: {camera_info['Software']}\n"
+            summary_text += "\n"
+        
+        # Location info
+        if '📍 GPS & Location Data' in self.metadata and isinstance(self.metadata['📍 GPS & Location Data'], dict):
+            gps_info = self.metadata['📍 GPS & Location Data']
+            summary_text += "📍 Location Data:\n"
+            if 'Latitude' in gps_info and 'Longitude' in gps_info:
+                summary_text += f"• Coordinates: {gps_info['Latitude']}, {gps_info['Longitude']}\n"
+            if 'Altitude' in gps_info:
+                summary_text += f"• Altitude: {gps_info['Altitude']}\n"
+            summary_text += "\n"
+        
+        # Forensic indicators
+        if '🕵️‍♂️ Forensic Analysis' in self.metadata:
+            forensic_info = self.metadata['🕵️‍♂️ Forensic Analysis']
+            summary_text += "🕵️‍♂️ Forensic Indicators:\n"
+            
+            warning_count = 0
+            for indicator, value in forensic_info.items():
+                if isinstance(value, str) and ("detected" in value.lower() or "possible" in value.lower()):
+                    summary_text += f"⚠️ {indicator}: {value}\n"
+                    warning_count += 1
+            
+            if warning_count == 0:
+                summary_text += "✅ No suspicious indicators detected\n"
+        
+        self.forensic_summary.setPlainText(summary_text)
+    
     def save_report(self):
         """Save metadata report to JSON file"""
         if not self.metadata:
@@ -956,6 +1083,7 @@ class MetadataExtractorApp(QMainWindow):
         file_dialog.setAcceptMode(QFileDialog.AcceptSave)
         file_dialog.setNameFilter("JSON files (*.json)")
         file_dialog.setDefaultSuffix("json")
+        file_dialog.setWindowTitle("Save Metadata Report")
         
         # Suggest a filename based on the image
         if self.current_file:
@@ -969,7 +1097,19 @@ class MetadataExtractorApp(QMainWindow):
                 try:
                     with open(output_path, 'w') as f:
                         json.dump(self.metadata, f, indent=4)
-                    QMessageBox.information(self, "Success", f"Report saved successfully to:\n{output_path}")
+                    
+                    # Show success message with path
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Information)
+                    msg.setWindowTitle("Success")
+                    msg.setText(f"Report saved successfully to:\n{output_path}")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    
+                    # Add button to open containing folder
+                    open_button = msg.addButton("Open Folder", QMessageBox.ActionRole)
+                    open_button.clicked.connect(lambda: webbrowser.open(os.path.dirname(output_path)))
+                    
+                    msg.exec_()
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Failed to save report:\n{str(e)}")
     
@@ -982,6 +1122,7 @@ class MetadataExtractorApp(QMainWindow):
         file_dialog.setAcceptMode(QFileDialog.AcceptSave)
         file_dialog.setNameFilter("Text files (*.txt)")
         file_dialog.setDefaultSuffix("txt")
+        file_dialog.setWindowTitle("Export Metadata Report")
         
         # Suggest a filename based on the image
         if self.current_file:
@@ -995,9 +1136,9 @@ class MetadataExtractorApp(QMainWindow):
                 try:
                     with open(output_path, 'w', encoding='utf-8') as f:
                         # Write header
-                        f.write("="*60 + "\n")
-                        f.write("IMAGE METADATA FORENSIC REPORT\n")
-                        f.write("="*60 + "\n\n")
+                        f.write("="*80 + "\n")
+                        f.write("IMAGE METADATA FORENSIC REPORT\n".center(80) + "\n")
+                        f.write("="*80 + "\n\n")
                         
                         # Write basic info
                         if '📁 File Information' in self.metadata:
@@ -1013,17 +1154,29 @@ class MetadataExtractorApp(QMainWindow):
                         f.write("\n=== COMPLETE METADATA ===\n")
                         f.write(json.dumps(self.metadata, indent=4))
                     
-                    QMessageBox.information(self, "Success", f"Report exported successfully to:\n{output_path}")
+                    # Show success message with path
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Information)
+                    msg.setWindowTitle("Success")
+                    msg.setText(f"Report exported successfully to:\n{output_path}")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    
+                    # Add button to open containing folder
+                    open_button = msg.addButton("Open Folder", QMessageBox.ActionRole)
+                    open_button.clicked.connect(lambda: webbrowser.open(os.path.dirname(output_path)))
+                    
+                    msg.exec_()
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Failed to export report:\n{str(e)}")
     
     def resizeEvent(self, event):
         """Handle window resize events to update image preview"""
         super().resizeEvent(event)
-        if self.current_file and not self.image_label.pixmap().isNull():
+        if self.current_file and hasattr(self, 'image_label') and not self.image_label.pixmap().isNull():
             pixmap = QPixmap(self.current_file)
+            max_size = self.image_label.size()
             scaled_pixmap = pixmap.scaled(
-                self.image_label.size(), 
+                max_size, 
                 Qt.KeepAspectRatio, 
                 Qt.SmoothTransformation
             )
@@ -1038,10 +1191,6 @@ if __name__ == "__main__":
     
     # Set application style and font
     app.setStyle('Fusion')
-    font = QFont()
-    font.setFamily("Segoe UI")
-    font.setPointSize(10)
-    app.setFont(font)
     
     # Create and show main window
     window = MetadataExtractorApp()
