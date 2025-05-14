@@ -45,16 +45,13 @@
 
 ### Prerequisites
 - Python 3.6+
-- Windows:
-  - Built-in WiFi tools
-- Linux:
-  - `aircrack-ng` suite
-  - `nmcli` (NetworkManager)
+- Windows
+- Linux
 
 ### Installation Steps
 ```bash
 git clone https://github.com/Sabirtanvir12/AIM-Forensic-Extractor.git
-cd aim
+cd AIM-Forensic-Extractor
 ```
 
 ```bash
